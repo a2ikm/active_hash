@@ -15,6 +15,9 @@ module ActiveHash
   class FieldTypeError < StandardError
   end
 
+  class NotNullError < StandardError
+  end
+
   class Convert
     def initialize(*args)
       @methods = args
@@ -137,6 +140,7 @@ module ActiveHash
         @records ||= []
         record.attributes[:id] ||= next_id
         validate_unique_id(record) if dirty
+        validate_not_null(record)
         mark_dirty
 
         add_to_record_index({ record.id.to_s => @records.length })
@@ -175,6 +179,15 @@ module ActiveHash
       end
 
       private :validate_unique_id
+
+      def validate_not_null(record)
+        record.attributes.each do |name, value|
+          not_null = (field_options[name] ||= {})[:null] == false
+          raise NotNullError.new("Null found at #{name} of record #{record.attributes.inspect}") if not_null && value.nil?
+        end
+      end
+
+      private :validate_not_null
 
       def create(attributes = {})
         record = new(attributes)
