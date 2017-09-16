@@ -25,7 +25,12 @@ module ActiveHash
   end
 
   def self.converters
-    @converters ||= {string: Convert.new(:to_s), integer: Convert.new(:to_i), float: Convert.new(:to_f)}.tap do |converters|
+    @converters ||= {
+      string:   Convert.new(:to_s),
+      symbol:   Convert.new(:to_sym),
+      integer:  Convert.new(:to_i),
+      float:    Convert.new(:to_f),
+    }.tap do |converters|
       converters[:bool] = Convert.new(:to_bool) if ''.respond_to? :to_bool
       converters[:datetime] = Convert.new(:to_time, :to_datetime) if ''.respond_to? :to_datetime
       converters[:date] = Convert.new(:to_date) if ''.respond_to? :to_date
