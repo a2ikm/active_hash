@@ -4,7 +4,7 @@ gemspec
 
 gem 'rspec', '~> 2.2.0'
 gem 'wwtd'
-gem 'rake'
+gem 'rake', '< 11.0'
 gem 'json'
 
 platforms :jruby do
