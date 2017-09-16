@@ -19,8 +19,8 @@ module ActiveYaml
 
     end
 
-    def initialize(attributes={})
-      super unless attributes.keys.index { |k| k.to_s.match /^\//i }
+    def initialize(array = [])
+      super unless self.class.attribute_names.index { |k| k.to_s.match /^\//i }
     end
   end
 
