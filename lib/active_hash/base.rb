@@ -111,18 +111,22 @@ module ActiveHash
       end
 
       def data
-        _data
+        _data.map do |array|
+          convert_array_to_hash(array)
+        end
       end
 
       def data=(array_of_hashes)
         mark_dirty
         @records = nil
         reset_record_index
-        self._data = array_of_hashes
+        self._data = Array(array_of_hashes).map do |hash|
+          convert_hash_to_array(hash)
+        end
         if array_of_hashes
           auto_assign_fields(array_of_hashes)
-          array_of_hashes.each do |hash|
-            insert new(hash)
+          _data.each do |array|
+            insert new(array)
           end
         end
       end
@@ -135,7 +139,7 @@ module ActiveHash
 
       def insert(record)
         @records ||= []
-        record.attributes[:id] ||= next_id
+        record.id ||= next_id
         validate_unique_id(record) if dirty
         mark_dirty
 
@@ -232,12 +236,39 @@ module ActiveHash
         validate_type(type) if type
         field_options[field_name] = options
 
-        convert = ActiveHash.converters[type]
-        define_getter_method(field_name, options[:default])
-        define_setter_method(field_name, convert)
+        define_getter_method(field_name)
+        define_setter_method(field_name)
         define_interrogator_method(field_name)
-        define_custom_find_method(field_name, convert)
-        define_custom_find_all_method(field_name, convert)
+        define_custom_find_method(field_name)
+        define_custom_find_all_method(field_name)
+      end
+
+      def attribute_index(name)
+        attribute_names.index(name)
+      end
+
+      def convert_hash_to_array(hash)
+        attribute_names.map do |name|
+          convert_value(name, hash[name])
+        end
+      end
+
+      def convert_array_to_hash(array)
+        attribute_names.zip(array).to_h
+      end
+
+      def convert_value(name, value)
+        options = field_options[name]
+        convert = ActiveHash.converters[options[:type]]
+        if value.nil?
+          if options.key?(:default)
+            convert ? convert.try(options[:default]) : options[:default]
+          else
+            nil
+          end
+        else
+          convert ? convert.try(value) : value
+        end
       end
 
       def validate_field(field_name)
@@ -296,18 +327,18 @@ module ActiveHash
       def define_getter_method(field, default_value)
         unless has_instance_method?(field)
           define_method(field) do
-            attributes[field].nil? ? default_value : attributes[field]
+            read_attribute(field)
           end
         end
       end
 
       private :define_getter_method
 
-      def define_setter_method(field, convert)
+      def define_setter_method(field)
         method_name = "#{field}="
         unless has_instance_method?(method_name)
           define_method(method_name) do |new_val|
-            attributes[field] = new_val.nil? ? nil : convert.nil? ? new_val : convert.try(new_val)
+            write_attribute(field, new_val)
           end
         end
       end
@@ -318,21 +349,21 @@ module ActiveHash
         method_name = :"#{field}?"
         unless has_instance_method?(method_name)
           define_method(method_name) do
-            send(field).present?
+            read_attribute(field).present?
           end
         end
       end
 
       private :define_interrogator_method
 
-      def define_custom_find_method(field_name, convert)
+      def define_custom_find_method(field_name)
         method_name = :"find_by_#{field_name}"
         unless has_singleton_method?(method_name)
           the_meta_class.instance_eval do
             define_method(method_name) do |*args|
               options = args.extract_options!
-              identifier = args[0].nil? ? nil : convert.nil? ? args[0] : convert.try(args[0])
-              all.detect { |record| record.send(field_name) == identifier }
+              identifier = self.class.convert_value(field_name, args[0])
+              all.detect { |record| record.read_attribute(field_name) == identifier }
             end
           end
         end
@@ -340,15 +371,15 @@ module ActiveHash
 
       private :define_custom_find_method
 
-      def define_custom_find_all_method(field_name, convert)
+      def define_custom_find_all_method(field_name)
         method_name = :"find_all_by_#{field_name}"
         unless has_singleton_method?(method_name)
           the_meta_class.instance_eval do
             unless singleton_methods.include?(method_name)
               define_method(method_name) do |*args|
                 options = args.extract_options!
-                identifier = args[0].nil? ? nil : convert.nil? ? args[0] : convert.try(args[0])
-                all.select { |record| record.send(field_name) == identifier }
+                identifier = self.class.convert_value(field_name, args[0])
+                all.select { |record| record.read_attribute(field_name) == identifier }
               end
             end
           end
@@ -412,34 +443,33 @@ module ActiveHash
 
     end
 
-    attr_reader :attributes
+    attr_reader :attributes_array
 
-    def initialize(attributes = {})
-      attributes.symbolize_keys!
-      @attributes = attributes
-      attributes.dup.each do |key, value|
-        send "#{key}=", value
+    def attributes
+      self.class.convert_array_to_hash(attributes_array)
+    end
+
+    def initialize(array = [])
+      if array.is_a?(Hash)
+        array = self.class.convert_hash_to_array(array)
       end
-      (self.class.field_options.keys - attributes.keys).each do |key|
-        options = self.class.field_options[key]
-        send "#{key}=", options[:default] if options.has_key?(:default)
-      end
+      @attributes_array = array
     end
 
     def [](key)
-      respond_to?(key) ? send(key) : nil
+      read_attribute(key)
     end
 
     def []=(key, val)
-      attributes[key] = val
+      write_attribute(key, val)
     end
 
     def id
-      attributes[:id] ? attributes[:id] : nil
+      read_attribute(:id)
     end
 
     def id=(id)
-      attributes[:id] = id
+      write_attribute(:id, id)
     end
 
     alias quoted_id id
@@ -513,15 +543,17 @@ module ActiveHash
     end
 
     def read_attribute(name)
-      attributes[name.to_sym]
+      name = name.to_sym
+      attributes_array[self.class.attribute_index(name)]
     end
 
     def write_attribute(name, value)
-      attributes[name.to_sym] = value
+      name = name.to_sym
+      attributes_array[self.class.attribute_index(name)] = self.class.convert_value(name, value)
     end
 
     def update_attributes(attrs)
-      attrs.each{|key, val| self[key.to_sym] = val }
+      attrs.each{|key, val| write_attribute(key, value) }
     end
   end
 end
