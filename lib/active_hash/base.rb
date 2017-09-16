@@ -258,7 +258,7 @@ module ActiveHash
       end
 
       def convert_value(name, value)
-        options = field_options[name]
+        options = field_options[name] || {}
         convert = ActiveHash.converters[options[:type]]
         if value.nil?
           if options.key?(:default)
@@ -324,7 +324,7 @@ module ActiveHash
 
       private :configuration_for_custom_finder
 
-      def define_getter_method(field, default_value)
+      def define_getter_method(field)
         unless has_instance_method?(field)
           define_method(field) do
             read_attribute(field)
@@ -362,7 +362,7 @@ module ActiveHash
           the_meta_class.instance_eval do
             define_method(method_name) do |*args|
               options = args.extract_options!
-              identifier = self.class.convert_value(field_name, args[0])
+              identifier = convert_value(field_name, args[0])
               all.detect { |record| record.read_attribute(field_name) == identifier }
             end
           end
@@ -378,7 +378,7 @@ module ActiveHash
             unless singleton_methods.include?(method_name)
               define_method(method_name) do |*args|
                 options = args.extract_options!
-                identifier = self.class.convert_value(field_name, args[0])
+                identifier = convert_value(field_name, args[0])
                 all.select { |record| record.read_attribute(field_name) == identifier }
               end
             end
@@ -436,7 +436,7 @@ module ActiveHash
       private :has_instance_method?
 
       def has_singleton_method?(name)
-        singleton_methods.map { |method| method.to_sym }.include?(name)
+        singleton_methods.map { |method| method.to_sym }.include?(name.to_sym)
       end
 
       private :has_singleton_method?
@@ -553,7 +553,7 @@ module ActiveHash
     end
 
     def update_attributes(attrs)
-      attrs.each{|key, val| write_attribute(key, value) }
+      attrs.each{|key, val| write_attribute(key, val) }
     end
   end
 end
